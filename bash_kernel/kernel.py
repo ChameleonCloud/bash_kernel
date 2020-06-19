@@ -2,6 +2,7 @@ from ipykernel.kernelbase import Kernel
 from pexpect import replwrap, EOF
 import pexpect
 
+from pkg_resources import iter_entry_points
 from subprocess import check_output
 import os.path
 
@@ -12,9 +13,12 @@ __version__ = '0.7.2'
 
 version_pat = re.compile(r'version (\d+(\.\d+)+)')
 
+TASKS_ENTRY_POINT_GROUP = 'bash_kernel.tasks'
+
 from .images import (
     extract_image_filenames, display_data_for_image, image_setup_cmd
 )
+from .task import PeriodicTask
 
 class IREPLWrapper(replwrap.REPLWrapper):
     """A subclass of REPLWrapper that gives incremental output
@@ -79,6 +83,7 @@ class BashKernel(Kernel):
     def __init__(self, **kwargs):
         Kernel.__init__(self, **kwargs)
         self._start_bash()
+        self._start_tasks()
 
     def _start_bash(self):
         # Signal handlers are inherited by forked processes, and we can't easily
@@ -107,6 +112,14 @@ class BashKernel(Kernel):
 
         # Register Bash function to write image data to temporary file
         self.bashwrapper.run_command(image_setup_cmd)
+
+    def _start_tasks(self):
+        self._tasks = []
+        for ep in iter_entry_points(TASKS_ENTRY_POINT_GROUP):
+            task_fn, kwargs = ep.load()
+            self._tasks.append(PeriodicTask(task_fn, **kwargs))
+        for task in self._tasks:
+            task.start()
 
     def process_output(self, output):
         if not self.silent:
